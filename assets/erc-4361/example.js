@@ -1,15 +1,42 @@
 // To run this example, navigate to this directory and run `npm i && node example.js`
+//
+// ----------------------------------------------------------------------------
+// Regression tests - the following messages from the ERC-4361 specification
+// body (Examples section) MUST parse successfully against the grammar below.
+// If you edit the grammar, verify these still parse before committing.
+// ----------------------------------------------------------------------------
+//
+// Example 1 - implicit scheme:
+//
+//   example.com wants you to sign in with your Ethereum account:
+//   0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+//
+//   I accept the ExampleOrg Terms of Service: https://example.com/tos
+//
+//   URI: https://example.com/login
+//   Version: 1
+//   Chain ID: 1
+//   Nonce: 32891756
+//   Issued At: 2021-09-30T16:25:24Z
+//   Resources:
+//   - ipfs://bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/
+//   - https://example.com/my-web2-claim.json
+//
+// Example 2 - implicit scheme, explicit port (example.com:3388 in place of
+// example.com on the first line; otherwise identical to Example 1).
+//
+// Example 3 - explicit scheme (https://example.com in place of example.com
+// on the first line; otherwise identical to Example 1).
 
 const apgApi = require('apg-js/src/apg-api/api');
 const apgLib = require('apg-js/src/apg-lib/node-exports');
 
 const GRAMMAR = `
 sign-in-with-ethereum =
-    domain %s" wants you to sign in with your Ethereum account:" LF
+    [ scheme "://" ] domain %s" wants you to sign in with your Ethereum account:" LF
     address LF
     LF
-    [ statement LF ]
-    LF
+    statement-section
     %s"URI: " URI LF
     %s"Version: " version LF
     %s"Chain ID: " chain-id LF
@@ -21,15 +48,20 @@ sign-in-with-ethereum =
     [ LF %s"Resources:"
     resources ]
 
-domain = authority
+domain = host [ ":" port ]
+    ; userinfo subcomponent of RFC 3986 authority
+    ; is excluded; host MUST NOT be empty.
 
-address = "0x" 40*40HEXDIG
-    ; Must also conform to captilization
-    ; checksum encoding specified in EIP-55
+address = %s"0x" 40*40HEXDIG
+    ; SHOULD also conform to the mixed-case
+    ; capitalization checksum specified in ERC-55
     ; where applicable (EOAs).
 
-statement = 1*( reserved / unreserved / " " )
-    ; The purpose is to exclude LF (line breaks).
+statement = *( %x20-7E )
+    ; Printable ASCII excluding LF (0x0A)
+    ; and other control characters.
+
+statement-section = statement LF LF / LF
 
 version = "1"
 
@@ -164,28 +196,18 @@ const parseMessage = (message) => {
     return ret;
   };
 
-  const domain = getField("domain");
-  parser.ast.callbacks.domain = domain;
-  const address = getField("address");
-  parser.ast.callbacks.address = address;
-  const statement = getField("statement");
-  parser.ast.callbacks.statement = statement;
-  const uri = getField("uri");
-  parser.ast.callbacks.uri = uri;
-  const version = getField("version");
-  parser.ast.callbacks.version = version;
-  const chainId = getField("chainId");
-  parser.ast.callbacks['chain-id'] = chainId;
-  const nonce = getField("nonce");
-  parser.ast.callbacks.nonce = nonce;
-  const issuedAt = getField("issuedAt");
-  parser.ast.callbacks['issued-at'] = issuedAt;
-  const expirationTime = getField("expirationTime");
-  parser.ast.callbacks['expiration-time'] = expirationTime;
-  const notBefore = getField("notBefore");
-  parser.ast.callbacks['not-before'] = notBefore;
-  const requestId = getField("requestId");
-  parser.ast.callbacks['request-id'] = requestId;
+  parser.ast.callbacks.scheme = getField("scheme");
+  parser.ast.callbacks.domain = getField("domain");
+  parser.ast.callbacks.address = getField("address");
+  parser.ast.callbacks.statement = getField("statement");
+  parser.ast.callbacks.uri = getField("uri");
+  parser.ast.callbacks.version = getField("version");
+  parser.ast.callbacks['chain-id'] = getField("chainId");
+  parser.ast.callbacks.nonce = getField("nonce");
+  parser.ast.callbacks['issued-at'] = getField("issuedAt");
+  parser.ast.callbacks['expiration-time'] = getField("expirationTime");
+  parser.ast.callbacks['not-before'] = getField("notBefore");
+  parser.ast.callbacks['request-id'] = getField("requestId");
 
   const resources = function (state, chars, phraseIndex, phraseLength, data) {
     const ret = id.SEM_OK;
@@ -212,14 +234,37 @@ const parseMessage = (message) => {
   return obj;
 }
 
-const createMessage = ({ domain, address, uri, version, chainId, nonce, issuedAt }) => {
-  const header = `${domain} wants you to sign in with your Ethereum account:\n${address}\n\n\n`;
-  const uriField = `URI: ${uri}\n`;
-  const versionField = `Version: ${version}\n`;
-  const chainField = `Chain ID: ${chainId}\n`;
-  const nonceField = `Nonce: ${nonce}\n`;
-  const issuedAtField = `Issued At: ${issuedAt}`;
-  return [header, uriField, versionField, chainField, nonceField, issuedAtField].join('');
+const createMessage = ({
+  scheme,
+  domain,
+  address,
+  uri,
+  version,
+  chainId,
+  nonce,
+  issuedAt,
+  expirationTime,
+  notBefore,
+  requestId,
+  resources,
+}) => {
+  const prefix = scheme ? `${scheme}://${domain}` : domain;
+  const header = `${prefix} wants you to sign in with your Ethereum account:\n${address}\n\n\n`;
+  const requiredFields = [
+    `URI: ${uri}\n`,
+    `Version: ${version}\n`,
+    `Chain ID: ${chainId}\n`,
+    `Nonce: ${nonce}\n`,
+    `Issued At: ${issuedAt}`,
+  ];
+  const optionalFields = [];
+  if (expirationTime) optionalFields.push(`\nExpiration Time: ${expirationTime}`);
+  if (notBefore) optionalFields.push(`\nNot Before: ${notBefore}`);
+  if (requestId) optionalFields.push(`\nRequest ID: ${requestId}`);
+  if (Array.isArray(resources) && resources.length >= 1) {
+    optionalFields.push(`\nResources:\n- ${resources.join('\n- ')}`);
+  }
+  return [header, ...requiredFields, ...optionalFields].join('');
 }
 
 const message = createMessage({
