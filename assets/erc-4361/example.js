@@ -61,7 +61,7 @@ statement = *( %x20-7E )
     ; Printable ASCII excluding LF (0x0A)
     ; and other control characters.
 
-statement-section = statement LF LF / LF
+statement-section = statement LF LF / [ LF ] 
 
 version = "1"
 
@@ -238,6 +238,7 @@ const createMessage = ({
   scheme,
   domain,
   address,
+  statement,
   uri,
   version,
   chainId,
@@ -249,7 +250,8 @@ const createMessage = ({
   resources,
 }) => {
   const prefix = scheme ? `${scheme}://${domain}` : domain;
-  const header = `${prefix} wants you to sign in with your Ethereum account:\n${address}\n\n\n`;
+  const header = `${prefix} wants you to sign in with your Ethereum account:\n${address}\n\n`;
+  const statementSection = statement ? `${statement}\n\n` : ``
   const requiredFields = [
     `URI: ${uri}\n`,
     `Version: ${version}\n`,
@@ -264,7 +266,7 @@ const createMessage = ({
   if (Array.isArray(resources) && resources.length >= 1) {
     optionalFields.push(`\nResources:\n- ${resources.join('\n- ')}`);
   }
-  return [header, ...requiredFields, ...optionalFields].join('');
+  return [header, statementSection, ...requiredFields, ...optionalFields].join('');
 }
 
 const message = createMessage({
