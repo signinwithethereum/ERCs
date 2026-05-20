@@ -53,9 +53,8 @@ domain = host [ ":" port ]
     ; is excluded; host MUST NOT be empty.
 
 address = %s"0x" 40*40HEXDIG
-    ; SHOULD also conform to the mixed-case
-    ; capitalization checksum specified in ERC-55
-    ; where applicable (EOAs).
+    ; If the address format is mixed-case, it
+    ; MUST conform to its ERC-55 checksum.
 
 statement = *( %x20-7E )
     ; Printable ASCII excluding LF (0x0A)
